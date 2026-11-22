@@ -1,61 +1,96 @@
-# wallsync
+# syncwlp
 
-**Local-first, peer-to-peer collections shared with the people you trust.**
+syncwlp configures Syncthing to sync `~/Pictures/Wallpapers` between devices.
 
-v0.1 does exactly one thing: **share wallpapers with your circle — no cloud, no
-account, no server.** You create a Circle and invite a friend. From then on, every
-wallpaper either of you adds appears in the other's Gallery: previewed as real images
-in the terminal, applied to the desktop with one keystroke. Nothing a friend adds ever
-touches your screen until *you* press Apply.
+## Architecture
 
-## How it works
+```mermaid
+flowchart TB
+    setup["syncwlp · one-time setup<br/>Install · start · configure"]
 
-wallsync is a single Rust binary — a CLI and a keyboard-first TUI with image previews on a
-degradation ladder (kitty → iTerm2 → sixel → halfblocks), so it works in any terminal.
-The transport underneath is **Syncthing**: wallsync speaks to a Syncthing daemon you
-already run, over its REST API, and never launches, embeds, or configures one. A
-Circle maps to a synced folder; wallsync supplies everything Syncthing deliberately
-doesn't — People instead of device IDs, Collections instead of directories, metadata
-that travels with each Item, invites and joins, and consent before anything changes
-your desktop. Discovery, NAT traversal, and encryption are Syncthing's job. Honesty
-note: with no server, nothing is enforced centrally — Roles are policy that
-well-behaved clients honour, and the docs say so wherever it matters.
+    subgraph network["YOUR DEVICES · NO CENTRAL FILE SERVER"]
+        direction LR
+        subgraph first["First machine · Arch Linux"]
+            a["Syncthing<br/>Trusted introducer"]
+            fa["Wallpaper folder<br/>~/Pictures/Wallpapers"]
+            a <--> fa
+        end
 
-## Status
+        subgraph peer["Peer · Arch Linux"]
+            b["Syncthing<br/>Join with device ID"]
+            fb["Wallpaper folder<br/>~/Pictures/Wallpapers"]
+            b <--> fb
+        end
 
-**v0.1 runs.** The full walkthrough has been executed across two Devices: Ana creates a
-Circle and adds a wallpaper, Ben joins with a printed Invite code, Ana approves him
-after matching the fingerprint both Devices print, and the wallpaper arrives in Ben's
-Gallery attributed to Ana — then Ben adds one and it lands in hers. Verified again on a
-network with local discovery, global discovery, relays and NAT traversal all disabled.
+        subgraph other["Optional peer · macOS / Windows"]
+            c["Syncthing<br/>Pair manually"]
+            fc["Wallpaper folder<br/>Choose a local directory"]
+            c <--> fc
+        end
 
+        a <-->|"Encrypted file sync"| b
+        a <-->|"Encrypted file sync"| c
+    end
+
+    setup -. "Local REST API" .-> a
+    setup -. "Local REST API · --join" .-> b
+
+    classDef installer fill:#7c3aed,stroke:#a78bfa,color:#ffffff,stroke-width:2px
+    classDef engine fill:#0f766e,stroke:#2dd4bf,color:#ffffff,stroke-width:2px
+    classDef folder fill:#1e293b,stroke:#94a3b8,color:#f8fafc
+    class setup installer
+    class a,b,c engine
+    class fa,fb,fc folder
+    style network fill:transparent,stroke:#94a3b8,stroke-dasharray:5 5
+    style first fill:transparent,stroke:#a78bfa
+    style peer fill:transparent,stroke:#2dd4bf
+    style other fill:transparent,stroke:#94a3b8
 ```
-wallsync doctor          # is this Device set up?
-wallsync init <name>     # mint your Identity
-wallsync create walls    # a Circle, and its Collection
-wallsync add ~/Pictures/Wallpapers/*
-wallsync invite          # a code to send over a channel you already trust
-wallsync                 # the TUI: Gallery, Preview, Members
+
+Solid arrows show two-way file sync; dotted arrows show setup only. Syncthing
+handles discovery and encrypted transport, directly or through a relay. The first
+machine introduces trusted peers; it is not a central file server. Accept each
+peer **and share the folder** before syncing. This syncs files, not the desktop's
+active wallpaper selection.
+
+## Setup
+
+The installer targets Arch Linux with a systemd user session and uses pacman for missing packages.
+Syncthing's local HTTP GUI must be enabled. **No cloning required—leave an existing
+Syncthing instance running.**
+
+On the first machine:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/opx0/syncwlp/main/syncwlp-setup.sh | bash
 ```
 
-Already syncing a wallpaper folder? `wallsync create <name> --path <dir> --adopt` takes it
-over in place — no copying, no second directory.
+Setup prints a ready-to-copy command for each peer, including your device ID.
+The command has this form (replace `FIRST_MACHINE_ID`):
 
-Apply backends: caelestia, swww, hyprpaper, feh, or your own command in
-`~/.config/wallsync/config.toml`. Build with `cargo build --release`; you need a Syncthing
-daemon already running, and `wallsync doctor` names anything missing.
+```bash
+curl -fsSL https://raw.githubusercontent.com/opx0/syncwlp/main/syncwlp-setup.sh | bash -s -- --join FIRST_MACHINE_ID
+```
 
-Not yet done: a second Device per Person, Activity, Notifications, a Health screen,
-rotation, Search.
+These commands execute the downloaded script. To inspect it first, open
+[`syncwlp-setup.sh`](syncwlp-setup.sh). To check an existing setup without changes:
 
-## Previously: wp-sync
+```bash
+curl -fsSL https://raw.githubusercontent.com/opx0/syncwlp/main/syncwlp-setup.sh | bash -s -- --check
+```
 
-This repo began as **wp-sync**, a one-script bash wallpaper syncer. wallsync is its
-successor, not a port. The script stays at
-[`wp-sync-setup.sh`](wp-sync-setup.sh) and keeps working; existing installs are not
-stranded — `wallsync create --adopt` takes over the wallpaper directory you already sync
-rather than recreating it.
+In the first machine's Syncthing UI, accept each peer and share **Wallpapers**
+with it. Peers trust the first machine as an introducer. File edits and
+deletions sync both ways.
 
-## License
+The folder ID defaults to `wallpapers`. To override it, set
+`SYNCWLP_FOLDER_ID` to the same value on every machine before setup. The printed
+invite command includes the folder ID automatically.
 
-MIT
+On Windows or macOS, pair the device in Syncthing and accept the shared folder
+at your preferred wallpaper directory.
+
+Existing folder settings, device identity, peer trust settings, and wallpaper
+watchers are preserved. Missing peers are added only when you use `--join`.
+
+[MIT license](LICENSE)
